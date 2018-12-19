@@ -20,6 +20,96 @@
 if (!isset($member))
   exit;
 
+/**
+ * Name:validateIso8601 --- Validate $date as ISO 8601 format.
+ *                          patterns of ISO 8601 standard
+ *                          basic : YYYYmmdd'\T'HHiiss
+ *                          extended : YYYY-mm-dd'\T'HH:ii:ss
+ *                          basic with UTC : YYYYmmdd'\T'HHiiss'\Z'
+ *                          extended with UTC : YYYY-mm-dd'\T'HH:ii:ss'\Z'
+ *
+ * @param string $date : target string for validation.
+ *
+ * @return boolean|string
+ *    success : 'basic'|'extended'|'mixed'|'basic utc'|'extended utc'|'basic tz'|'extended tz'
+ */
+function validateIso8601($date)
+{
+    // Basic style without utc symbol, time zone
+    if (preg_match(
+        '/^(\d{1,4})(0[1-9]|1[012])(0[1-9]|[12][0-9]|3[01])'
+        .'T'
+        .'([0-1][0-9]|2[0-4])[0-5][0-9][0-5][0-9]'
+        .'$/',
+        $date, $matches
+    ) === 1) {
+        return 'basic';
+    }
+    // Extended style without utc symbol, time zone
+    if (preg_match(
+        '/^(\d{1,4})-(0[1-9]|1[012])-(0[1-9]|[12][0-9]|3[01])'
+        .'T'
+        .'([0-1][0-9]|2[0-4]):[0-5][0-9]:[0-5][0-9]'
+        .'$/',
+        $date, $matches
+    ) === 1) {
+        return 'extended';
+    }
+    // Mixed style without utc symbol, time difference
+    //(it violates ISO 8601 standard but Windows Live Writer sends createdDate with this style.)
+    if (preg_match(
+        '/^(\d{1,4})(0[1-9]|1[012])(0[1-9]|[12][0-9]|3[01])'
+        .'T'
+        .'([0-1][0-9]|2[0-4]):[0-5][0-9]:[0-5][0-9]'
+        .'$/',
+        $date, $matches
+    ) === 1) {
+        return 'mixed';
+    }
+    // Basic style with utc symbol
+    if (preg_match(
+        '/^(\d{1,4})(0[1-9]|1[012])(0[1-9]|[12][0-9]|3[01])'
+        .'T'
+        .'([0-1][0-9]|2[0-4])[0-5][0-9][0-5][0-9]'
+        .'Z$/',
+        $date, $matches
+    ) === 1) {
+        return 'basic utc';
+    }
+    // Extended style with utc symbol
+    if (preg_match(
+        '/^(\d{1,4})-(0[1-9]|1[012])-(0[1-9]|[12][0-9]|3[01])'
+        .'T'
+        .'([0-1][0-9]|2[0-4]):[0-5][0-9]:[0-5][0-9]'
+        .'Z$/',
+        $date, $matches
+    ) === 1) {
+        return 'extended utc';
+    }
+    // Basic style with time difference
+    if(preg_match(
+        '/^(\d{1,4})(0[1-9]|1[012])(0[1-9]|[12][0-9]|3[01])'
+        .'T'
+        .'([0-1][0-9]|2[0-4])[0-5][0-9][0-5][0-9]'
+        .'((\+|-)([01][0-9]|2[0-4])([0-5][0-9])?)$/',
+        $date, $matches
+    ) === 1) {
+        return 'basic td';
+    }
+    // Extended style with time difference
+    if(preg_match(
+        '/^(\d{1,4})-(0[1-9]|1[012])-(0[1-9]|[12][0-9]|3[01])'
+        .'T'
+        .'([0-1][0-9]|2[0-4]):[0-5][0-9]:[0-5][0-9]'
+        .'((\+|-)([01][0-9]|2[0-4]):?([0-5][0-9])?)$/',
+        $date, $matches
+    ) === 1) {
+        return 'extended td';
+    }
+
+    return false;
+}
+
 	// metaWeblog.newPost
 	$f_metaWeblog_newPost_sig = array(array(
 			// return type
@@ -52,19 +142,41 @@ if (!isset($member))
 			$category = _getArrayVal($catlist, 0);
 		
 		//  mt_allow_comments is optional (thus: be careful)!
-		$c = (int) _getStructVal($struct, 'mt_allow_comments');
-		if ($c==''){
-			$comments =	0;
+		// mt_allow_comments sends these values
+		// 0 : none ( no comments are allowed. )
+		// 1 : open ( allow )
+		// 2 : closed ( opened time has passed. )
+		// So $closed must be 1 when mt_allow_comments is 0 or 2, 0 when mt_allow_comments is 1.
+		// $closed must be have value of 0 or 1.
+		$comments = $struct->structmem('mt_allow_comments');
+		// If mt_allow_comments doesn't exist or '', open comments($closed = 0).
+		// If mt_allow_comments=1, open comments($closed = 0).
+		// If mt_allow_comments=2 or other value, close comments($closed = 1).
+		if ($comments) {
+			$closed = (intval(_getStructVal($struct, 'mt_allow_comments')) == 1) ? 0 : 1;
+		} else {
+			$closed = 0;
 		}
-		else {
-			$comments = $c;
-		}
-		
 		$publish = _getScalar($m,4);
 
-
 		// Add item
-		$res = _addItem($blogid, $username, $password, $title, $content, $more, $publish, $comments, $category);
+		$res = _addItem($blogid, $username, $password, $title, $content, $more, $publish, $closed, $category);
+		$dateCreated = $struct->structmem('dateCreated');//Crabfish
+		if ($dateCreated) {//Crabfish
+			$dateCreated = _getStructVal($struct, 'dateCreated');
+			$v = validateIso8601($dateCreated);
+			if (($v == 'basic') || ($v == 'extended') || ($v == 'mixed')) {
+				// if dateCreated has no utc symbol and time difference, treat it as utc.
+				// if dateCreated has utc symbol or time difference, convert to unix time directly.
+				$dateCreated .= 'Z';
+			}
+			$timestamp = strtotime($dateCreated);//Crabfish iso8601 to unix time(time difference is counted.)//Crabfish
+			//$content .= "[dateCreated is ".$timestamp."]";//Added by Crabfish
+			$res = _addDatedItem($blogid, $username, $password, $title, $content, $more, $publish, $closed, $timestamp, 1, $category);//Crabfish
+		} else {//Crabfish
+			//$content .= "[dateCreated is null]";//Added by Crabfish
+			$res = _addItem($blogid, $username, $password, $title, $content, $more, $publish, $closed, $category);//Crabfish
+		}//Crabfish
 		
 		// Handle trackbacks
 		$trackbacks = array();
@@ -202,7 +314,20 @@ if (!isset($member))
 			$comments = $old['closed'];
 		}
 
-		$res = _edititem($itemid, $username, $password, $catid, $title, $content, $more, $wasdraft, $publish, $comments);
+		$dateCreated = $struct->structmem('dateCreated');
+		if ($dateCreated) {
+			$dateCreated = _getStructVal($struct, 'dateCreated');
+			$v = validateIso8601($dateCreated);
+			if (($v == 'basic') || ($v == 'extended') || ($v == 'mixed')) {
+				// if dateCreated has no utc symbol and time difference, assume as utc.
+				// if dateCreated has utc symbol or time difference, convert to unix time directly.
+				$dateCreated .= 'Z';
+			}
+			$timestamp = strtotime($dateCreated);//ISO 8601 to unix time(time difference is counted.)
+			$res = _edititem($itemid, $username, $password, $catid, $title, $content, $more, $wasdraft, $publish, $closed, $timestamp);//Add by Crabfish
+		} else {
+			$res = _edititem($itemid, $username, $password, $catid, $title, $content, $more, $wasdraft, $publish, $closed);
+		}
 
 		// Handle trackbacks
 		$trackbacks = array();

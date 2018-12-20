@@ -27,6 +27,8 @@ if (!isset($member))
  *                          extended : YYYY-mm-dd'\T'HH:ii:ss
  *                          basic with UTC : YYYYmmdd'\T'HHiiss'\Z'
  *                          extended with UTC : YYYY-mm-dd'\T'HH:ii:ss'\Z'
+ *                          basic with time zone offset : YYYYmmdd'\T'HHiiss+0000
+ *                          extended with time zone offset : YYYY-mm-dd'\T'HH:ii:ss+00:00
  *
  * @param string $date : target string for validation.
  *
@@ -45,7 +47,7 @@ function validateIso8601($date)
     ) === 1) {
         return 'basic';
     }
-    // Extended style without utc symbol, time zone
+    // Extended style without utc symbol, time zone offset
     if (preg_match(
         '/^(\d{1,4})-(0[1-9]|1[012])-(0[1-9]|[12][0-9]|3[01])'
         .'T'
@@ -55,7 +57,7 @@ function validateIso8601($date)
     ) === 1) {
         return 'extended';
     }
-    // Mixed style without utc symbol, time difference
+    // Mixed style without utc symbol, time zone offset
     //(it violates ISO 8601 standard but Windows Live Writer sends createdDate with this style.)
     if (preg_match(
         '/^(\d{1,4})(0[1-9]|1[012])(0[1-9]|[12][0-9]|3[01])'
@@ -86,7 +88,7 @@ function validateIso8601($date)
     ) === 1) {
         return 'extended utc';
     }
-    // Basic style with time difference
+    // Basic style with time zone offset
     if(preg_match(
         '/^(\d{1,4})(0[1-9]|1[012])(0[1-9]|[12][0-9]|3[01])'
         .'T'
@@ -94,9 +96,9 @@ function validateIso8601($date)
         .'((\+|-)([01][0-9]|2[0-4])([0-5][0-9])?)$/',
         $date, $matches
     ) === 1) {
-        return 'basic td';
+        return 'basic tz';
     }
-    // Extended style with time difference
+    // Extended style with time zone offset
     if(preg_match(
         '/^(\d{1,4})-(0[1-9]|1[012])-(0[1-9]|[12][0-9]|3[01])'
         .'T'
@@ -104,7 +106,7 @@ function validateIso8601($date)
         .'((\+|-)([01][0-9]|2[0-4]):?([0-5][0-9])?)$/',
         $date, $matches
     ) === 1) {
-        return 'extended td';
+        return 'extended tz';
     }
 
     return false;
@@ -161,22 +163,20 @@ function validateIso8601($date)
 
 		// Add item
 		$res = _addItem($blogid, $username, $password, $title, $content, $more, $publish, $closed, $category);
-		$dateCreated = $struct->structmem('dateCreated');//Crabfish
-		if ($dateCreated) {//Crabfish
+		$dateCreated = $struct->structmem('dateCreated');
+		if ($dateCreated) {
 			$dateCreated = _getStructVal($struct, 'dateCreated');
 			$v = validateIso8601($dateCreated);
 			if (($v == 'basic') || ($v == 'extended') || ($v == 'mixed')) {
-				// if dateCreated has no utc symbol and time difference, treat it as utc.
-				// if dateCreated has utc symbol or time difference, convert to unix time directly.
+				// if dateCreated has no utc symbol and time zone offset, treat it as utc.
+				// if dateCreated has utc symbol or time zone offset, convert it to unix time directly.
 				$dateCreated .= 'Z';
 			}
-			$timestamp = strtotime($dateCreated);//Crabfish iso8601 to unix time(time difference is counted.)//Crabfish
-			//$content .= "[dateCreated is ".$timestamp."]";//Added by Crabfish
-			$res = _addDatedItem($blogid, $username, $password, $title, $content, $more, $publish, $closed, $timestamp, 1, $category);//Crabfish
-		} else {//Crabfish
-			//$content .= "[dateCreated is null]";//Added by Crabfish
-			$res = _addItem($blogid, $username, $password, $title, $content, $more, $publish, $closed, $category);//Crabfish
-		}//Crabfish
+			$timestamp = strtotime($dateCreated);//ISO 8601 to unix time(time zone offset is counted.)
+			$res = _addDatedItem($blogid, $username, $password, $title, $content, $more, $publish, $closed, $timestamp, 1, $category);
+		} else {
+			$res = _addItem($blogid, $username, $password, $title, $content, $more, $publish, $closed, $category);
+		}
 		
 		// Handle trackbacks
 		$trackbacks = array();
